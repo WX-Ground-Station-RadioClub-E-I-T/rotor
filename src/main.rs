@@ -24,11 +24,8 @@
 
 
 // import local modules
-extern crate doppler;
-use doppler::usage;
-use doppler::usage::Mode::{ConstMode, TrackMode};
-use doppler::usage::DataType::{I16, F32};
-use doppler::dsp;
+extern crate rotor;
+use rotor::usage;
 
 // import external modules
 #[macro_use]
@@ -36,175 +33,69 @@ extern crate log;
 extern crate fern;
 use std::process::exit;
 use std::io;
+use std::net::TcpStream;
 use std::io::prelude::*;
-use std::io::BufReader;
-use std::io::BufWriter;
-use std::slice;
+
+use std::thread;
 
 extern crate time;
 extern crate gpredict;
 use gpredict::{Predict, Tle, Location};
 
-const SPEED_OF_LIGHT_M_S: f64 = 299792458.;
 const BUFFER_SIZE: usize = 8192;
 
 fn main() {
     setup_logger();
     let args = usage::args();
 
-    info!("doppler {} andres.vahter@gmail.com\n\n", env!("CARGO_PKG_VERSION"));
+    info!("rotor {} acien@ea4rct.org\n\n", env!("CARGO_PKG_VERSION"));
 
-    let mut stdin = BufReader::with_capacity(BUFFER_SIZE*2, io::stdin());
-    let mut stdout = BufWriter::new(io::stdout());
+    thread::spawn(move || { // Pipe stdin to stdout
+        io::copy(&mut io::stdin().lock(), &mut io::stdout().lock());
+    });
 
-    let mut samplenr: u32 = 0;
+    info!("Rotor");
+    info!("\tTLE file        : {}", args.tlefile.as_ref().unwrap());
+    info!("\tTLE name        : {}", args.tlename.as_ref().unwrap());
+    info!("\tlocation        : {:?}", args.location.as_ref().unwrap());
+    info!("\tServer       : {}", args.server.as_ref().unwrap());
+    info!("\tPort          : {} \n\n\n", args.port.as_ref().unwrap());
 
-    let mut shift = |intype: doppler::usage::DataType, shift_hz: f32, samplerate: u32| {
-        let invec = stdin.by_ref().bytes().take(BUFFER_SIZE).collect::<Result<Vec<u8>,_>>().ok().expect("doppler collect error");
-
-        let input = match intype {
-                I16 => dsp::convert_iqi16_to_complex(&invec),
-                F32 => dsp::convert_iqf32_to_complex(&invec),
-        };
-
-        let output = dsp::shift_frequency(&input, &mut samplenr, shift_hz, samplerate);
-
-        match *args.outputtype.as_ref().unwrap() {
-            doppler::usage::DataType::I16 => {
-                let mut outputi16 = Vec::<u8>::with_capacity(output.len() * 4);
-
-                for sample in &output[..] {
-                    let i = (sample.re * 32767.0) as i16;
-                    let q = (sample.im * 32767.0) as i16;
-
-                    outputi16.push((i & 0xFF) as u8);
-                    outputi16.push(((i >> 8) & 0xFF) as u8);
-                    outputi16.push((q & 0xFF) as u8);
-                    outputi16.push(((q >> 8) & 0xFF) as u8);
-                }
-
-                stdout.write(&outputi16[..]).map_err(|e|{info!("doppler stdout.write error: {:?}", e)}).unwrap();
-            },
-
-            doppler::usage::DataType::F32 => {
-                // * 8 because Complex<f32> is 8 bytes long
-                let slice = unsafe {slice::from_raw_parts(output.as_ptr() as *const _, output.len() * 8)};
-                stdout.write(&slice).map_err(|e|{info!("doppler stdout.write error: {:?}", e)}).unwrap();
-            },
-        };
+    let l = args.location.unwrap();
+    let location: Location = Location{lat_deg: l.lat, lon_deg: l.lon, alt_m: l.alt};
+    let tlename = args.tlename.as_ref().unwrap();
+    let tlefile = args.tlefile.as_ref().unwrap();
+    let server = args.server.as_ref().unwrap();
+    let port = args.port.as_ref().unwrap();
 
 
-        stdout.flush().map_err(|e|{info!("doppler stdout.flush error: {:?}", e)}).unwrap();
-        (invec.len() != BUFFER_SIZE, output.len())
+    let tle = match Tle::from_file(&tlename, &tlefile) {
+        Ok(t) => {t},
+        Err(e) => {
+            info!("{}", e);
+            exit(1);
+        }
     };
 
-    match *args.mode.as_ref().unwrap() {
-        ConstMode => {
-            info!("constant shift mode");
-            info!("\tIQ samplerate   : {}", args.samplerate.as_ref().unwrap());
-            info!("\tIQ input type   : {}", args.inputtype.as_ref().unwrap());
-            info!("\tIQ output type  : {}\n", args.outputtype.as_ref().unwrap());
-            info!("\tfrequency shift : {} Hz", args.constargs.shift.as_ref().unwrap());
+    let mut predict: Predict = Predict::new(&tle, &location);
+    let mut last_time: time::Tm = time::now_utc();
 
-            let intype = args.inputtype.unwrap();
-            let shift_hz = args.constargs.shift.unwrap() as f32;
-            let samplerate = args.samplerate.unwrap();
+    let mut stream = TcpStream::connect(format!("{}:{}", server, port)).unwrap();
 
-            loop {
-                let stop_and_count: (bool, usize) = shift(intype, shift_hz, samplerate);
-                if stop_and_count.0 {
-                    break;
-                }
+    loop {
+        predict.update(None);
+
+        if time::now_utc() - last_time >= time::Duration::seconds(1) {
+            last_time = time::now_utc();
+            info!("time                : {:}", time::now_utc().to_utc().rfc3339());
+            info!("az                  : {:.2}°", predict.sat.az_deg);
+            info!("el                  : {:.2}°", predict.sat.el_deg);
+            info!("range               : {:.0} km", predict.sat.range_km);
+            info!("range rate          : {:.3} km/sec \n\n\n", predict.sat.range_rate_km_sec);
+
+            if predict.sat.el_deg > 0.0 {
+                stream.write(format!("P {:.1} {:.1}", predict.sat.az_deg, predict.sat.el_deg).as_bytes()).unwrap();
             }
-        }
-
-
-        TrackMode => {
-            info!("tracking mode");
-            info!("\tIQ samplerate   : {}", args.samplerate.as_ref().unwrap());
-            info!("\tIQ input type   : {}", args.inputtype.as_ref().unwrap());
-            info!("\tIQ output type  : {}\n", args.outputtype.as_ref().unwrap());
-            info!("\tTLE file        : {}", args.trackargs.tlefile.as_ref().unwrap());
-            info!("\tTLE name        : {}", args.trackargs.tlename.as_ref().unwrap());
-            info!("\tlocation        : {:?}", args.trackargs.location.as_ref().unwrap());
-            if args.trackargs.time.is_some() {
-                info!("\ttime            : {:.3}", args.trackargs.time.unwrap().to_utc().rfc3339());
-            }
-            info!("\tfrequency       : {} Hz", args.trackargs.frequency.as_ref().unwrap());
-            info!("\toffset          : {} Hz\n\n\n", args.trackargs.offset.unwrap_or(0));
-
-            let l = args.trackargs.location.unwrap();
-            let location: Location = Location{lat_deg: l.lat, lon_deg: l.lon, alt_m: l.alt};
-            let tlename = args.trackargs.tlename.as_ref().unwrap();
-            let tlefile = args.trackargs.tlefile.as_ref().unwrap();
-
-            let tle = match Tle::from_file(&tlename, &tlefile) {
-                Ok(t) => {t},
-                Err(e) => {
-                    info!("{}", e);
-                    exit(1);
-                }
-            };
-
-            let mut predict: Predict = Predict::new(&tle, &location);
-            let intype = args.inputtype.unwrap();
-
-            let samplerate = args.samplerate.unwrap();
-            let mut last_time: time::Tm = time::now_utc();
-
-            match args.trackargs.time {
-                Some(start_time) => {
-                    let mut sample_count = 0;
-                    let mut dt = time::Duration::seconds(0);
-                    last_time = start_time;
-
-                    loop {
-                        predict.update(Some(start_time + dt));
-                        let doppler_hz = (predict.sat.range_rate_km_sec * 1000_f64 / SPEED_OF_LIGHT_M_S) * args.trackargs.frequency.unwrap() as f64 * (-1.0);
-
-                        // advance time based on how many samples are read in
-                        dt = time::Duration::seconds((sample_count as f32 / samplerate as f32) as i64);
-                        if start_time + dt - last_time >= time::Duration::seconds(5) {
-                            last_time = start_time + dt;
-                            info!("time                : {:}", (start_time + dt).to_utc().rfc3339());
-                            info!("az                  : {:.2}°", predict.sat.az_deg);
-                            info!("el                  : {:.2}°", predict.sat.el_deg);
-                            info!("range               : {:.0} km", predict.sat.range_km);
-                            info!("range rate          : {:.3} km/sec", predict.sat.range_rate_km_sec);
-                            info!("doppler@{:.3} MHz : {:.2} Hz\n", args.trackargs.frequency.unwrap() as f32 / 1000_000_f32, doppler_hz);
-                        }
-
-                        let (stop, count): (bool, usize) = shift(intype, doppler_hz as f32 + args.trackargs.offset.unwrap_or(0) as f32, samplerate);
-                        if stop {
-                            break;
-                        }
-
-                        sample_count += count;
-                    }
-                }
-
-                None => {
-                    loop {
-                        predict.update(None);
-                        let doppler_hz = (predict.sat.range_rate_km_sec * 1000_f64 / SPEED_OF_LIGHT_M_S) * args.trackargs.frequency.unwrap() as f64 * (-1.0);
-
-                        if time::now_utc() - last_time >= time::Duration::seconds(1) {
-                            last_time = time::now_utc();
-                            info!("time                : {:}", time::now_utc().to_utc().rfc3339());
-                            info!("az                  : {:.2}°", predict.sat.az_deg);
-                            info!("el                  : {:.2}°", predict.sat.el_deg);
-                            info!("range               : {:.0} km", predict.sat.range_km);
-                            info!("range rate          : {:.3} km/sec", predict.sat.range_rate_km_sec);
-                            info!("doppler@{:.3} MHz : {:.2} Hz\n", args.trackargs.frequency.unwrap() as f32 / 1000_000_f32, doppler_hz);
-                        }
-
-                        let (stop, _): (bool, usize) = shift(intype, doppler_hz as f32 + args.trackargs.offset.unwrap_or(0) as f32, samplerate);
-                        if stop {
-                            break;
-                        }
-                    }
-                }
-            };
         }
     }
 }

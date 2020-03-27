@@ -22,33 +22,9 @@
  * SOFTWARE.
  */
 
-use clap::{App, AppSettings, Arg, SubCommand};
-use time;
-use self::DataType::{F32, I16};
-use self::Mode::{ConstMode, TrackMode};
+use clap::{App, AppSettings, Arg};
 
-use std::fmt;
 use std::process::exit;
-
-pub enum Mode {
-    ConstMode,
-    TrackMode,
-}
-
-#[derive(Clone, Copy)]
-pub enum DataType {
-    F32,
-    I16,
-}
-
-impl fmt::Display for DataType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            DataType::F32 => {write!(f, "f32")},
-            DataType::I16 => {write!(f, "i16")},
-        }
-    }
-}
 
 #[derive(Debug)]
 #[derive(Clone, Copy)]
@@ -58,28 +34,12 @@ pub struct Location {
     pub alt: f64,
 }
 
-pub struct ConstModeArgs {
-    pub shift: Option<i32>,
-}
-
-pub struct TrackModeArgs {
+pub struct CommandArgs {
     pub tlefile: Option<String>,
     pub tlename: Option<String>,
     pub location: Option<Location>,
-    pub time: Option<time::Tm>,
-    pub frequency: Option<u32>,
-    pub offset: Option<i32>,
-}
-
-pub struct CommandArgs {
-    pub mode: Option<Mode>,
-
-    pub samplerate: Option<u32>,
-    pub inputtype: Option<DataType>,
-    pub outputtype: Option<DataType>,
-
-    pub constargs: ConstModeArgs,
-    pub trackargs: TrackModeArgs,
+    pub server: Option<String>,
+    pub port: Option<String>,
 }
 
 fn parse_location(location: &str) -> Result<Location, String> {
@@ -115,223 +75,61 @@ fn parse_location(location: &str) -> Result<Location, String> {
 }
 
 pub fn args() -> CommandArgs {
-    let datatypes = ["i16", "f32"];
-
-    let matches = App::new("doppler")
-                .author("Andres Vahter <andres.vahter@gmail.com>")
+    let matches = App::new("rotor")
+                .author("Fran Acien - RadioClub E.I.T <acien@ea4rct.org>")
                 .version(env!("CARGO_PKG_VERSION"))
-                .about("Compensates IQ data stream doppler shift based on TLE information, also can be used for doing constant baseband shifting")
-
-
-                .subcommand(SubCommand::with_name("const")
-                    .setting(AppSettings::AllowLeadingHyphen) // allow negative values like --shift -5000
-                    .about("Constant shift mode")
-
-                    .arg(Arg::with_name("SAMPLERATE")
-                       .long("samplerate")
-                       .short("s")
-                       .help("IQ data samplerate")
-                       .required(true)
-                       .takes_value(true))
-
-                    .arg(Arg::with_name("INTYPE")
-                       .long("intype")
-                       .short("i")
-                       .help("IQ data input type")
-                       .required(true)
-                       .possible_values(&datatypes)
-                       .takes_value(true))
-
-                   .arg(Arg::with_name("OUTTYPE")
-                       .long("outtype")
-                       .short("o")
-                       .help("IQ data output type")
-                       .required(false)
-                       .possible_values(&datatypes)
-                       .takes_value(true))
-
-                    .arg(Arg::with_name("SHIFT")
-                       .long("shift")
-                       .help("frequency shift in Hz")
-                       .required(true)
-                       .takes_value(true)))
-
-
-                .subcommand(SubCommand::with_name("track")
-                    .setting(AppSettings::AllowLeadingHyphen) // allow negative values like --offset -5000
-                    .about("Doppler tracking mode")
-
-                    .arg(Arg::with_name("SAMPLERATE")
-                       .long("samplerate")
-                       .short("s")
-                       .help("IQ data samplerate")
-                       .required(true)
-                       .takes_value(true))
-
-                    .arg(Arg::with_name("INTYPE")
-                       .long("intype")
-                       .short("i")
-                       .help("IQ data type")
-                       .required(true)
-                       .possible_values(&datatypes)
-                       .takes_value(true))
-
-                   .arg(Arg::with_name("OUTTYPE")
-                       .long("outtype")
-                       .short("o")
-                       .help("IQ data output type")
-                       .required(false)
-                       .possible_values(&datatypes)
-                       .takes_value(true))
-
-                    .arg(Arg::with_name("TLEFILE")
-                       .long("tlefile")
-                       .help("TLE file: eg. http://www.celestrak.com/NORAD/elements/cubesat.txt")
-                       .required(true)
-                       .takes_value(true))
-
-                    .arg(Arg::with_name("TLENAME")
-                       .long("tlename")
-                       .help("TLE name in TLE file: eg. ESTCUBE 1")
-                       .required(true)
-                       .takes_value(true))
-
-                    .arg(Arg::with_name("LOCATION")
-                       .long("location")
-                       .help("Observer location (lat=<deg>,lon=<deg>,alt=<m>): eg. lat=58.64560,lon=23.15163,alt=8")
-                       .required(true)
-                       .use_delimiter(false)
-                       .takes_value(true))
-
-                    .arg(Arg::with_name("TIME")
-                       .long("time")
-                       .help("Observation start time in UTC Y-m-dTH:M:S: eg. 2015-05-13T14:28:48. If not specified current time is used")
-                       .required(false)
-                       .takes_value(true))
-
-                    .arg(Arg::with_name("FREQUENCY")
-                       .long("frequency")
-                       .help("Satellite transmitter frequency in Hz")
-                       .required(true)
-                       .takes_value(true))
-
-                    .arg(Arg::with_name("OFFSET")
-                       .long("offset")
-                       .help("Constant frequency shift in Hz. Can be used to compensate constant offset")
-                       .required(false)
-                       .takes_value(true)))
-
+                .about("Move antenna rotor with rotctld using TLE data. Pipe input to output. The idea is to use it as a Linux Pipe when receiving.")
+                .setting(AppSettings::AllowLeadingHyphen) // allow negative values like --offset -5000
+                .arg(Arg::with_name("TLEFILE")
+                   .long("tlefile")
+                   .help("TLE file: eg. http://www.celestrak.com/NORAD/elements/cubesat.txt")
+                   .required(true)
+                   .takes_value(true))
+                .arg(Arg::with_name("TLENAME")
+                   .long("tlename")
+                   .help("TLE name in TLE file: eg. ESTCUBE 1")
+                   .required(true)
+                   .takes_value(true))
+                .arg(Arg::with_name("LOCATION")
+                   .long("location")
+                   .help("Observer location (lat=<deg>,lon=<deg>,alt=<m>): eg. lat=58.64560,lon=23.15163,alt=8")
+                   .required(true)
+                   .use_delimiter(false)
+                   .takes_value(true))
+                .arg(Arg::with_name("ROTCTLD_ENDPOINT")
+                   .long("server")
+                   .help("Server name to connect: eg. 138.30.4.1")
+                   .required(true)
+                   .takes_value(true))
+                .arg(Arg::with_name("ROTCTLD_PORT")
+                   .long("port")
+                   .help("Server port to connect: eg. 4555")
+                   .required(true)
+                   .takes_value(true))
                 .get_matches();
 
 
     let mut args = CommandArgs {
-                    mode : None,
-
-                    samplerate : None,
-                    inputtype : None,
-                    outputtype: None,
-
-                    constargs : ConstModeArgs {
-                        shift: None,
-                    },
-
-                    trackargs : TrackModeArgs {
-                        tlefile : None,
-                        tlename : None,
-                        location: None,
-                        time : None,
-                        frequency : None,
-                        offset : None,
-                    },
+                    tlefile : None,
+                    tlename : None,
+                    location: None,
+                    server: None,
+                    port: None,
                 };
 
-
-    match matches.subcommand_name() {
-        Some("const")   => {
-            args.mode = Some(ConstMode);
-            let submatches = matches.subcommand_matches("const").unwrap();
-            args.samplerate = Some(value_t_or_exit!(submatches.value_of("SAMPLERATE"), u32));
-
-            match submatches.value_of("INTYPE").unwrap() {
-                "f32" => {args.inputtype = Some(F32);},
-                "i16" => {args.inputtype = Some(I16);},
-                _ => unreachable!()
-            }
-
-            if submatches.is_present("OUTTYPE") {
-                match submatches.value_of("OUTTYPE").unwrap() {
-                    "f32" => {args.outputtype = Some(F32);},
-                    "i16" => {args.outputtype = Some(I16);},
-                    _ => unreachable!()
-                }
-            }
-            else {
-                args.outputtype = args.inputtype;
-            }
-
-            args.constargs.shift = Some(value_t_or_exit!(submatches.value_of("SHIFT"), i32));
-        },
-
-
-        Some("track") => {
-            args.mode = Some(TrackMode);
-            let submatches = matches.subcommand_matches("track").unwrap();
-            args.samplerate = Some(value_t_or_exit!(submatches.value_of("SAMPLERATE"), u32));
-
-            match submatches.value_of("INTYPE").unwrap() {
-                "f32" => {args.inputtype = Some(F32);},
-                "i16" => {args.inputtype = Some(I16);},
-                _ => unreachable!()
-            }
-
-            if submatches.is_present("OUTTYPE") {
-                match submatches.value_of("OUTTYPE").unwrap() {
-                    "f32" => {args.outputtype = Some(F32);},
-                    "i16" => {args.outputtype = Some(I16);},
-                    _ => unreachable!()
-                }
-            }
-            else {
-                args.outputtype = args.inputtype;
-            }
-
-            if submatches.is_present("OFFSET") {
-                args.trackargs.offset = Some(value_t_or_exit!(submatches.value_of("OFFSET"), i32));
-            }
-
-            if submatches.is_present("TIME") {
-                let tm = time::strptime(submatches.value_of("TIME").unwrap(), "%Y-%m-%dT%H:%M:%S");
-                match tm {
-                    Ok(_) => {},
-                    Err(e) => {
-                        error!("{}.", e);
-                        error!("--time should be defined in Y-m-dTH:M:S format: eg. 2015-05-13T14:28:48");
-                        exit(1);
-                    },
-                };
-
-                args.trackargs.time = Some(tm.unwrap());
-            }
-
-            args.trackargs.tlefile = Some(submatches.value_of("TLEFILE").unwrap().to_string());
-            args.trackargs.tlename = Some(submatches.value_of("TLENAME").unwrap().to_string());
-            args.trackargs.frequency = Some(value_t_or_exit!(submatches.value_of("FREQUENCY"), u32));
-
-            let location = parse_location(&submatches.value_of("LOCATION").unwrap().to_string());
-            match location {
-                Ok(loc) => { args.trackargs.location = Some(loc);},
-                Err(e) => {
-                    error!("{}.", e);
-                    exit(1);
-                }
-            }
-        },
-
-        _ => {
-            info!("no arguments provided, try with doppler -h");
+    args.tlefile = Some(matches.value_of("TLEFILE").unwrap().to_string());
+    args.tlename = Some(matches.value_of("TLENAME").unwrap().to_string());
+    let location = parse_location(&matches.value_of("LOCATION").unwrap().to_string());
+    match location {
+        Ok(loc) => { args.location = Some(loc);},
+        Err(e) => {
+            error!("{}.", e);
             exit(1);
         }
     }
+
+    args.server = Some(matches.value_of("ROTCTLD_ENDPOINT").unwrap().to_string());
+    args.port = Some(matches.value_of("ROTCTLD_PORT").unwrap().to_string());
 
     args
 }

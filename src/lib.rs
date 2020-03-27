@@ -29,7 +29,5 @@ extern crate num;
 #[macro_use] extern crate log;
 #[macro_use] extern crate clap;
 extern crate gpredict;
-extern crate liquid_dsp;
 
 pub mod usage;
-pub mod dsp;

@@ -1,7 +1,7 @@
 [package]
-name = "doppler"
-version = "1.1.10"
-authors = ["Andres Vahter <andres.vahter@gmail.com>"]
+name = "rotor"
+version = "0.0.1"
+authors = ["Fran Acién <acien@ea4rct.org>"]
 build = "build.rs"
 
 [dependencies]
