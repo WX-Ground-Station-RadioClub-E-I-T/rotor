@@ -33,10 +33,10 @@ extern crate log;
 extern crate fern;
 use std::process::exit;
 use std::io;
-use std::net::TcpStream;
 use std::io::prelude::*;
-
-use std::thread;
+use std::io::BufReader;
+use std::io::BufWriter;
+use std::net::TcpStream;
 
 extern crate time;
 extern crate gpredict;
@@ -47,12 +47,10 @@ const BUFFER_SIZE: usize = 8192;
 fn main() {
     setup_logger();
     let args = usage::args();
+    let mut stdin = BufReader::with_capacity(BUFFER_SIZE*2, io::stdin());
+    let mut stdout = BufWriter::new(io::stdout());
 
     info!("rotor {} acien@ea4rct.org\n\n", env!("CARGO_PKG_VERSION"));
-
-    thread::spawn(move || { // Pipe stdin to stdout
-        io::copy(&mut io::stdin().lock(), &mut io::stdout().lock());
-    });
 
     info!("Rotor");
     info!("\tTLE file        : {}", args.tlefile.as_ref().unwrap());
@@ -96,6 +94,14 @@ fn main() {
             if predict.sat.el_deg > 0.0 {
                 stream.write(format!("P {:.1} {:.1}", predict.sat.az_deg, predict.sat.el_deg).as_bytes()).unwrap();
             }
+        }
+
+        let invec = stdin.by_ref().bytes().take(BUFFER_SIZE).collect::<Result<Vec<u8>,_>>().ok().expect("rotor collect error");
+        stdout.write(&invec[..]).map_err(|e|{info!("rotor stdout.write error: {:?}", e)}).unwrap();
+
+        if invec.len() != BUFFER_SIZE {
+            info!("EXITING");
+            break;
         }
     }
 }
