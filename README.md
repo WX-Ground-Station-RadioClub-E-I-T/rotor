@@ -1,6 +1,8 @@
-# doppler
-Command line utility that takes IQ data stream as input and produces doppler corrected output stream based on TLE.
-Firstly it was written in C ([last commit to C version](https://github.com/cubehub/doppler/commit/e6df4d271ece09a88b8dba9b054bb10bdcb996ce)), however now it is rewritten in [rust](http://www.rust-lang.org).
+# rotor
+
+Command line utility for real time controlling antenna position through rotctld using libgpredict. Pipes audio input to output so it can be use as a pipe when receiving satellites on linux.
+
+Original work [doppler](https://github.com/cubehub/doppler).
 
 ## dependencies
 #### mac os x
@@ -28,47 +30,24 @@ http://www.rust-lang.org/install.html
     curl -sSf https://static.rust-lang.org/rustup.sh | sh
 
 ## build
-    git clone https://github.com/cubehub/doppler.git
-    cd doppler
+    git clone https://git.radio.clubs.etsit.upm.es/Meteor-automated/rotor
+    cd rotor
     cargo build --release
 
 ## install
 #### mac os x
-    cp target/release/doppler /usr/local/bin/
+    cp target/release/rotor /usr/local/bin/
 
 #### linux
-    sudo cp target/release/doppler /usr/local/bin/
+    sudo cp target/release/rotor /usr/local/bin/
 
 ## usage
+
 ```
 rotor --tlefile <TLEFILE> --telename <TLENAME> --location <LOCATION> --server <ROTCTLD_ENDPOINT> --port <ROTCTLD_PORT>
 ```
+It pipes audio input to output. Realtime tracking satellite while receiving would be:
 
-
-
-#### help
-    doppler -h
-    doppler track -h
-    doppler const -h
-
-#### realtime
-Do realtime doppler correction to ESTCube-1 satellite that transmits on 437.505 MHz and write output to a file.
-Notice that `rtl_fm` is tuned to 437.500 MHz, but ESTCube-1 transmits on 437.505 MHz, therefore 5000 Hz constant offset correction is also added with `--offset` parameter. It can be omitted if there is no offset.
-
-
-    rtl_fm -f 437.5M -s 1024000 -g 20 -M raw - | doppler track -s 1024000 -i i16 --tlefile cubesat.txt --tlename 'ESTCUBE 1' --location lat=58.26541,lon=26.46667,alt=76 --frequency 437505000 --offset 5000 > zero.iq
-
-#### recording
-Do doppler correction to a file that is recorded before. For example someone has recorded an overpass and you would like to convert it to another file where doppler compensation has been made.
-If parameter `--time` is specified it does doppler correction based on this time instead of real time. It denotes start time of the recording in UTC.
-
-    cat last_overpass_256000sps_i16.iq | doppler track -s 256000 -i i16 --tlefile cubesat.txt --tlename 'ESTCUBE 1' --location lat=58.26541,lon=26.46667,alt=76 --frequency 437505000 --offset -2500 --time 2015-01-22T09:07:16 > zero_overpass.iq
-
-    sox -t wav last_overpass.wav -esigned-integer -b16  -r 300000 -t raw - | doppler track -s 300000 -i i16 --tlefile cubesat.txt --tlename 'ESTCUBE 1' --location lat=58.26541,lon=26.46667,alt=76 --frequency 437505000 --offset -2500 --time 2015-01-22T09:07:16 > zero_overpass.iq
-
-Notice that if dealing with old files you also have to use TLEs from that day, otherwise doppler correction result might be off. Here offset compensation of -2500 Hz is used only for example purposes.
-
-#### baseband shifting
-It is also possible to just shift baseband signal "left" or "right" using `const` mode. In this example input signal has float IQ data format therefore `-i f32` is used. However output is converted to int16 IQ data format using `-o i16`.
-
-    cat baseband_256000sps_f32.iq | doppler const -s 256000 -i f32 --shift -15000 -o i16 > shifted_baseband_256000sps_i16.iq
+```
+ss_client iq -r ${SERVER} -q ${PORT} -f ${FREQ} -s ${SAMPLERATE} | rotor --tlefile ${TLE_FILE} --tlename "${SAT}" --location lat=${RX_LAT},lon=${RX_LON},alt=${RX_ALT} --server ${ROTCTLD_SERVER} --port ${ROTCTLD_PORT} > output.iq
+```
