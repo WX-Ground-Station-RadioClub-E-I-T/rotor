@@ -40,6 +40,12 @@ http://www.rust-lang.org/install.html
     sudo cp target/release/doppler /usr/local/bin/
 
 ## usage
+```
+rotor --tlefile <TLEFILE> --telename <TLENAME> --location <LOCATION> --server <ROTCTLD_ENDPOINT> --port <ROTCTLD_PORT>
+```
+
+
+
 #### help
     doppler -h
     doppler track -h
